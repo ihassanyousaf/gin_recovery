@@ -41,11 +41,8 @@ type ErrorReportingConfig struct {
 }
 
 type RecoveryConfig struct {
-	RecoveryHandler func(ctx *gin.Context, err interface{})
-	ErrorReporting  *ErrorReportingConfig
+	ErrorReporting *ErrorReportingConfig
 }
-
-var config RecoveryConfig
 
 func New(cfg RecoveryConfig) {
 	if cfg.ErrorReporting != nil {
@@ -59,11 +56,10 @@ func New(cfg RecoveryConfig) {
 		}
 		isErrorReporting = true
 	}
-	config.RecoveryHandler = cfg.RecoveryHandler
 }
 
 func Recovery() gin.HandlerFunc {
-	return recoveryWithWriterAndHandler(config.RecoveryHandler, gin.DefaultErrorWriter)
+	return recoveryWithWriterAndHandler(gin.DefaultErrorWriter)
 }
 
 func reportError(c *gin.Context, err interface{}) {
@@ -73,62 +69,7 @@ func reportError(c *gin.Context, err interface{}) {
 	})
 }
 
-func recoveryWithErrorReportingAndWriter(f func(ctx *gin.Context, err interface{}), out io.Writer) gin.HandlerFunc {
-	var logger *log.Logger
-	if out != nil {
-		logger = log.New(out, "\n\n\x1b[31m", log.LstdFlags)
-	}
-
-	return func(c *gin.Context) {
-		defer func() {
-			if err := recover(); err != nil {
-				// Check for a broken connection, as it is not really a
-				// condition that warrants a panic stack trace.
-				var brokenPipe bool
-				if ne, ok := err.(*net.OpError); ok {
-					if se, ok := ne.Err.(*os.SyscallError); ok {
-						if strings.Contains(strings.ToLower(se.Error()), "broken pipe") || strings.Contains(strings.ToLower(se.Error()), "connection reset by peer") {
-							brokenPipe = true
-						}
-					}
-				}
-				if logger != nil {
-					stack := stack(3)
-					httpRequest, _ := httputil.DumpRequest(c.Request, false)
-					headers := strings.Split(string(httpRequest), "\r\n")
-					for idx, header := range headers {
-						current := strings.Split(header, ":")
-						if current[0] == "Authorization" {
-							headers[idx] = current[0] + ": *"
-						}
-					}
-					if brokenPipe {
-						logger.Printf("%s\n%s%s", err, string(httpRequest), reset)
-					} else if gin.IsDebugging() {
-						logger.Printf("[Recovery] %s panic recovered:\n%s\n%s\n%s%s",
-							timeFormat(time.Now()), strings.Join(headers, "\r\n"), err, stack, reset)
-					} else {
-						logger.Printf("[Recovery] %s panic recovered:\n%s\n%s%s",
-							timeFormat(time.Now()), err, stack, reset)
-						reportError(c, err)
-					}
-				}
-				// If the connection is dead, we can't write a status to it.
-				if brokenPipe {
-					c.Error(err.(error)) // nolint: errcheck
-					c.Abort()
-				} else {
-					c.AbortWithStatus(http.StatusInternalServerError)
-				}
-
-				f(c, err)
-			}
-		}()
-		c.Next()
-	}
-}
-
-func recoveryWithWriterAndHandler(f func(ctx *gin.Context, err interface{}), out io.Writer) gin.HandlerFunc {
+func recoveryWithWriterAndHandler(out io.Writer) gin.HandlerFunc {
 	var logger *log.Logger
 	if out != nil {
 		logger = log.New(out, "\n\n\x1b[31m", log.LstdFlags)
@@ -174,10 +115,10 @@ func recoveryWithWriterAndHandler(f func(ctx *gin.Context, err interface{}), out
 					c.Error(err.(error)) // nolint: errcheck
 					c.Abort()
 				} else {
-					c.AbortWithStatus(http.StatusInternalServerError)
+					c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+						"err": err,
+					})
 				}
-
-				f(c, err)
 			}
 		}()
 		c.Next()
