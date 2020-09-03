@@ -116,7 +116,7 @@ func recoveryWithWriterAndHandler(out io.Writer) gin.HandlerFunc {
 					c.Abort()
 				} else {
 					c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-						"err": err,
+						"err": err.(error).Error(),
 					})
 				}
 			}
