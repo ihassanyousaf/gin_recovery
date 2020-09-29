@@ -44,6 +44,10 @@ type RecoveryConfig struct {
 	ErrorReporting *ErrorReportingConfig
 }
 
+func Close() {
+	_ = errorClient.Close()
+}
+
 func New(cfg RecoveryConfig) {
 	if cfg.ErrorReporting != nil {
 		ctx := context.Background()
